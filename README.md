@@ -1,8 +1,12 @@
+<div align="center">
+  <img src="assets/logo.png" alt="Meloniq Logo" width="128" height="128">
+</div>
+
 # Meloniq - Music Analysis Tool
 
 Meloniq is a powerful desktop application for analyzing music. It provides key detection, BPM estimation, and meter analysis from various audio sources.
 
-![Meloniq Screenshot](resources/logo.png)
+![Meloniq Screenshot](assets/screenshot.png)
 
 [Türkçe Dökümantasyon (Turkish Documentation)](README_TR.md)
 

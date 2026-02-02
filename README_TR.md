@@ -1,6 +1,12 @@
+<div align="center">
+  <img src="assets/logo.png" alt="Meloniq Logo" width="128" height="128">
+</div>
+
 # Meloniq - Müzik Analiz Aracı
 
 Meloniq, müzik analizi yapmak için geliştirilmiş güçlü bir masaüstü uygulamasıdır. Çeşitli ses kaynaklarından ton tespiti, BPM tahmini ve ölçü analizi sağlar.
+
+![Meloniq Ekran Görüntüsü](assets/screenshot.png)
 
 [English Documentation](README.md)
 
