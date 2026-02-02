@@ -45,7 +45,7 @@ Meloniq, müzik analizi yapmak için geliştirilmiş güçlü bir masaüstü uyg
 
 ### Hazır Kurulum (EXE)
 
-`Meloniq_Setup.exe` dosyasını kullanarak kurulum yapabilirsiniz.
+[`Meloniq_Setup.exe`](https://github.com/burakarslan0110/meloniq/releases/latest) dosyasını kullanarak kurulum yapabilirsiniz.
 
 ## Gereksinimler
 

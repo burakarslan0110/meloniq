@@ -45,7 +45,7 @@ Meloniq is a powerful desktop application for analyzing music. It provides key d
 
 ### Pre-built Executable
 
-Install using the provided `Meloniq_Setup` executable.
+Install using the provided [`Meloniq_Setup`](https://github.com/burakarslan0110/meloniq/releases/latest) executable.
 
 ## Building from Source
 
