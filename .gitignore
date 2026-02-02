@@ -1,0 +1,34 @@
+# Python & Build
+__pycache__/
+*.py[cod]
+*$py.class
+*.spec
+
+# C extensions
+*.pyd
+
+# Distribution / Build
+build/
+dist/
+Output/
+*.egg-info/
+.installer/
+
+# Virtual Environment
+venv/
+env/
+.env
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# OS
+Thumbs.db
+Desktop.ini
+NUL
+
+# Exceptions (keep these if meant to be tracked, otherwise ignore)
+# *.exe (Ignoring exes, but setup.iss is source)
+!Setup.exe

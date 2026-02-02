@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meloniq"
+version = "1.0.0"
+description = "Music Analyzer for Musicians - Extract tempo, key, structure and more from audio"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "Music Analyzer Team"}
+]
+keywords = ["music", "audio", "analysis", "tempo", "key", "bpm", "dsp"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Multimedia :: Sound/Audio :: Analysis",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "PySide6>=6.6.0",
+    "numpy>=1.24.0",
+    "scipy>=1.11.0",
+    "librosa>=0.10.1",
+    "soundfile>=0.12.1",
+    "sounddevice>=0.4.6",
+    "pyloudnorm>=0.1.1",
+    "matplotlib>=3.8.0",
+    "pydantic>=2.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+# madmom is optional due to complex Windows installation
+advanced = [
+    "madmom>=0.17.dev0",
+]
+
+[project.scripts]
+meloniq = "meloniq.main:main"
+
+[project.gui-scripts]
+meloniq-gui = "meloniq.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "W", "I", "UP"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

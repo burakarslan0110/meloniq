@@ -1,0 +1,41 @@
+# Core dependencies for Music Analyzer
+# Tested with Python 3.11+
+
+# UI Framework
+PySide6>=6.6.0
+
+# Numerical/Scientific
+numpy>=1.24.0
+scipy>=1.11.0
+
+# Audio Analysis (core)
+librosa>=0.10.1
+soundfile>=0.12.1
+
+# Audio Capture (system audio, microphone)
+sounddevice>=0.4.6
+pyaudiowpatch>=0.2.12  # Windows WASAPI loopback support
+
+# Loudness measurement
+pyloudnorm>=0.1.1
+
+# Visualization
+matplotlib>=3.8.0
+
+# Data validation
+pydantic>=2.5.0
+
+# Advanced tempo detection (CNN-based, 95.9% accuracy)
+deeprhythm>=0.0.13
+torch>=2.0.0
+torchaudio>=2.0.0
+
+# Optional: madmom for beat tracking (may have Windows installation issues)
+# madmom>=0.17.dev0
+
+# YouTube support
+yt-dlp>=2024.1.0
+
+# Development dependencies (optional)
+# pytest>=7.4.0
+# pytest-cov>=4.1.0
