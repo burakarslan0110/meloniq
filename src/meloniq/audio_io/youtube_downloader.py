@@ -175,14 +175,20 @@ class YouTubeDownloader:
             
         ydl_opts['logger'] = MyLogger()
         
-        # Varsa FFmpeg son işlemcisini ekle
-        if ffmpeg_path:
-            ydl_opts['ffmpeg_location'] = ffmpeg_path
-            ydl_opts['postprocessors'] = [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }]
+        # FFmpeg ZORUNLU - ses çıkarma için gerekli
+        if not ffmpeg_path:
+            return DownloadResult(
+                success=False,
+                error="FFmpeg bulunamadı! YouTube'dan ses indirmek için FFmpeg gerekli.\n"
+                      "Çözüm: python scripts/download_ffmpeg.py"
+            )
+
+        ydl_opts['ffmpeg_location'] = ffmpeg_path
+        ydl_opts['postprocessors'] = [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }]
         
         try:
             if progress_callback:
@@ -249,27 +255,57 @@ class YouTubeDownloader:
             )
 
     def _find_ffmpeg(self) -> Optional[str]:
-        """FFmpeg yolunu bul."""
-        ffmpeg_path = None
-        
+        """
+        FFmpeg yolunu bul.
+
+        Arama sirasi:
+        1. PyInstaller frozen EXE icindeki _MEIPASS
+        2. Proje vendor/ffmpeg dizini (gelistirme ortami)
+        3. imageio_ffmpeg paketi
+        4. Sistem PATH'inde ffmpeg
+
+        Returns:
+            ffmpeg.exe'nin tam yolu veya None
+        """
+        # 1. PyInstaller frozen modunda _MEIPASS kontrol et
         if getattr(sys, 'frozen', False):
             base_path = Path(sys._MEIPASS)
             possible_paths = [
                 base_path / 'ffmpeg.exe',
                 base_path / 'ffmpeg' / 'ffmpeg.exe',
                 base_path / 'bin' / 'ffmpeg.exe',
+                base_path / 'vendor' / 'ffmpeg' / 'ffmpeg.exe',
             ]
             for p in possible_paths:
                 if p.exists():
                     return str(p)
-        
-        # imageio_ffmpeg dene
+
+        # 2. Gelistirme ortami: vendor/ffmpeg dizini
+        # Script dosyasinin bulundugu yerden proje kokunu bul
+        try:
+            current_file = Path(__file__).resolve()
+            # src/meloniq/audio_io/youtube_downloader.py -> proje koku
+            project_root = current_file.parent.parent.parent.parent
+            vendor_ffmpeg = project_root / 'vendor' / 'ffmpeg' / 'ffmpeg.exe'
+            if vendor_ffmpeg.exists():
+                return str(vendor_ffmpeg)
+        except Exception:
+            pass
+
+        # 3. imageio_ffmpeg paketi (pip ile yuklu ise)
         try:
             import imageio_ffmpeg
-            return imageio_ffmpeg.get_ffmpeg_exe()
-        except:
+            ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+            if ffmpeg_path and Path(ffmpeg_path).exists():
+                return ffmpeg_path
+        except Exception:
             pass
-            
+
+        # 4. Sistem PATH'inde ffmpeg ara
+        ffmpeg_in_path = shutil.which('ffmpeg')
+        if ffmpeg_in_path:
+            return ffmpeg_in_path
+
         return None
 
     def _find_downloaded_file(self, template: str) -> Optional[Path]:

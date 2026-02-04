@@ -2,7 +2,6 @@
 __pycache__/
 *.py[cod]
 *$py.class
-*.spec
 
 # C extensions
 *.pyd
@@ -28,6 +27,10 @@ env/
 Thumbs.db
 Desktop.ini
 NUL
+
+# FFmpeg binaries (download with: python scripts/download_ffmpeg.py)
+vendor/ffmpeg/*.exe
+vendor/ffmpeg/*.dll
 
 # Exceptions (keep these if meant to be tracked, otherwise ignore)
 # *.exe (Ignoring exes, but setup.iss is source)

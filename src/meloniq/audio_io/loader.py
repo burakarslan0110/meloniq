@@ -53,7 +53,7 @@ class AudioLoader:
     Soundfile/librosa aracılığıyla şunları destekler: WAV, MP3, FLAC, OGG, AIFF ve diğer formatlar.
     """
     
-    SUPPORTED_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg", ".aiff", ".aif", ".m4a"}
+    SUPPORTED_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg", ".aiff", ".aif", ".m4a", ".mp4", ".webm", ".opus"}
     
     # Analiz için standart örnekleme oranı
     ANALYSIS_SR = 22050

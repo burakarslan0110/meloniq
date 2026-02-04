@@ -30,25 +30,36 @@ except ImportError:
 class TempoAnalyzer:
     """
     CNN tabanlı algılama ile geliştirilmiş tempo analizcisi.
-    
+
     Birincil yöntem olarak DeepRhythm (CNN, %95.9 doğruluk) kullanır,
     yedek ve doğrulama olarak librosa topluluğunu kullanır.
+
+    Geliştirilmiş oktav düzeltme: Onset strength periyodiklik analizi ile
+    yarı/çift tempo hatalarını minimize eder.
     """
-    
+
     # Çoğu müzik için BPM aralığı (normalizasyon için kullanılır)
     BPM_MIN = 60
     BPM_MAX = 180
     BPM_ABSOLUTE_MIN = 40
     BPM_ABSOLUTE_MAX = 220
-    
+
     # Güvenilirlik eşiği
     HIGH_CONFIDENCE = 0.85
     MEDIUM_CONFIDENCE = 0.70
     LOW_CONFIDENCE = 0.50
-    
+
+    # Oktav düzeltme için enerji oranı eşiği
+    # Bu değer, yarı tempo periyodundaki enerjinin tam tempo periyoduna oranı
+    OCTAVE_ENERGY_THRESHOLD = 0.75
+
     def __init__(self, hop_length: int = 512):
         self.hop_length = hop_length
-        
+
+        # Onset envelope önbelleği (tekrarlı hesaplamayı önlemek için)
+        self._cached_onset_env: Optional[np.ndarray] = None
+        self._cached_sr: Optional[int] = None
+
         # Varsa DeepRhythm'i başlat
         self._predictor = None
         if _DEEPRHYTHM_AVAILABLE:
@@ -80,35 +91,49 @@ class TempoAnalyzer:
         Returns:
             BPM, vuruşlar, güven ve alternatifleri içeren TempoResult
         """
+        # Onset envelope'u hesapla ve önbelleğe al (tüm yöntemler için kullanılacak)
+        self._cached_onset_env = librosa.onset.onset_strength(
+            y=y, sr=sr, hop_length=self.hop_length
+        )
+        self._cached_sr = sr
+
         # Birden fazla yöntemden tempo tahminlerini topla
         estimates = []
-        
+
+        # Sinyal kalitesi metriğini hesapla (dinamik ağırlıklandırma için)
+        signal_quality = self._estimate_signal_quality(y, sr)
+
         # Yöntem 1: DeepRhythm CNN (en doğru)
         deeprhythm_bpm = None
         if self._predictor is not None:
             try:
                 deeprhythm_bpm = self._predict_with_deeprhythm(y, sr)
                 if deeprhythm_bpm is not None:
-                    estimates.append(('deeprhythm', deeprhythm_bpm, 0.95))  # Yüksek ağırlık
+                    # DeepRhythm ağırlığı sinyal kalitesine göre ayarlanır
+                    dr_weight = 0.95 if signal_quality > 0.5 else 0.85
+                    estimates.append(('deeprhythm', deeprhythm_bpm, dr_weight))
             except Exception:
                 pass
-        
+
         # Yöntem 2: Librosa beat_track
         librosa_bpm, beat_frames = self._librosa_beat_track(y, sr)
         estimates.append(('librosa_beat', librosa_bpm, 0.70))
-        
+
         # Yöntem 3: Tempogram PLP (Baskın Yerel Nabız)
         plp_bpm = self._tempogram_plp(y, sr)
         if plp_bpm is not None:
             estimates.append(('plp', plp_bpm, 0.65))
-        
+
         # Yöntem 4: Otokorelasyon tempogramı
         acf_bpm = self._tempogram_acf(y, sr)
         if acf_bpm is not None:
             estimates.append(('acf', acf_bpm, 0.60))
-        
+
         # Topluluk: oktav hizalaması ile ağırlıklı oylama
         final_bpm, confidence, candidates = self._ensemble_tempo(estimates)
+
+        # Akıllı oktav düzeltme: onset envelope analizi ile doğrula
+        final_bpm = self._smart_octave_correction(final_bpm, y, sr)
         
         # Tahmini tempoyu kullanarak vuruş zamanlarını al
         beat_times = self._track_beats_with_tempo(y, sr, final_bpm)
@@ -347,42 +372,188 @@ class TempoAnalyzer:
         while bpm > self.BPM_MAX:
             bpm /= 2
         return bpm
+
+    def _estimate_signal_quality(self, y: np.ndarray, sr: int) -> float:
+        """
+        Sinyal kalitesini tahmin et (0.0 - 1.0 arası).
+
+        Yüksek kalite: Net vuruşlar, düşük gürültü
+        Düşük kalite: Belirsiz ritim, yüksek gürültü
+
+        Bu metrik, ensemble ağırlıklarını dinamik olarak ayarlamak için kullanılır.
+        """
+        if self._cached_onset_env is None:
+            return 0.5
+
+        onset_env = self._cached_onset_env
+
+        # Metrik 1: Onset envelope'un tepe/ortalama oranı (net vuruşlar = yüksek oran)
+        if len(onset_env) == 0 or np.mean(onset_env) == 0:
+            return 0.3
+
+        peak_to_mean = np.max(onset_env) / (np.mean(onset_env) + 1e-10)
+        # Tipik değerler: 2-10 arası. 5'in üzeri iyi kabul edilir.
+        peak_score = min(1.0, (peak_to_mean - 2.0) / 6.0)
+
+        # Metrik 2: Onset envelope'un varyansı (tutarlı ritim = düşük normalize varyans)
+        normalized_std = np.std(onset_env) / (np.mean(onset_env) + 1e-10)
+        # Çok düşük varyans sessizlik, çok yüksek gürültü demek
+        variance_score = 1.0 - abs(normalized_std - 1.5) / 2.0
+        variance_score = max(0.0, min(1.0, variance_score))
+
+        # Birleşik skor
+        quality = 0.6 * peak_score + 0.4 * variance_score
+        return max(0.1, min(1.0, quality))
+
+    def _smart_octave_correction(self, bpm: float, y: np.ndarray, sr: int) -> float:
+        """
+        Akıllı oktav düzeltme: Onset strength periyodiklik analizi ile
+        yarı/çift tempo arasında doğru olanı seç.
+
+        Algoritma:
+        1. Mevcut BPM'e karşılık gelen periyotta onset envelope'un otokorelasyonunu hesapla
+        2. Yarı ve çift tempo periyotlarındaki otokorelasyon gücünü karşılaştır
+        3. Hangi periyot daha güçlü ise o BPM'i seç
+
+        Bu yöntem, örneğin 80 BPM'lik bir şarkının 160 BPM olarak
+        yanlış raporlanmasını önler.
+        """
+        if self._cached_onset_env is None or self._cached_sr is None:
+            return bpm
+
+        onset_env = self._cached_onset_env
+        hop_sr = sr / self.hop_length  # Onset envelope'un örnekleme oranı
+
+        # BPM'i onset envelope frame periyoduna çevir
+        def bpm_to_lag(tempo: float) -> int:
+            """BPM'i otokorelasyon lag değerine çevir."""
+            if tempo <= 0:
+                return 0
+            period_seconds = 60.0 / tempo
+            lag = int(period_seconds * hop_sr)
+            return max(1, lag)
+
+        # Otokorelasyonu hesapla
+        max_lag = min(len(onset_env) // 2, bpm_to_lag(self.BPM_ABSOLUTE_MIN) + 10)
+        if max_lag < 10:
+            return bpm
+
+        acf = librosa.autocorrelate(onset_env, max_size=max_lag)
+
+        # Otokorelasyonu normalize et
+        if acf[0] > 0:
+            acf = acf / acf[0]
+
+        def get_acf_strength(tempo: float) -> float:
+            """Belirli bir tempo için otokorelasyon gücünü döndür."""
+            lag = bpm_to_lag(tempo)
+            if lag <= 0 or lag >= len(acf):
+                return 0.0
+            # Lag etrafında küçük bir pencere ortalaması al (gürültü toleransı)
+            window = 2
+            start = max(0, lag - window)
+            end = min(len(acf), lag + window + 1)
+            return float(np.max(acf[start:end]))
+
+        # Mevcut BPM ve alternatifleri için güç hesapla
+        current_strength = get_acf_strength(bpm)
+
+        # Yarı tempo kontrol (sadece 60 BPM üzerindeyse)
+        half_bpm = bpm / 2
+        half_strength = 0.0
+        if half_bpm >= self.BPM_ABSOLUTE_MIN:
+            half_strength = get_acf_strength(half_bpm)
+
+        # Çift tempo kontrol (sadece 180 BPM altındaysa)
+        double_bpm = bpm * 2
+        double_strength = 0.0
+        if double_bpm <= self.BPM_ABSOLUTE_MAX:
+            double_strength = get_acf_strength(double_bpm)
+
+        # Karar verme: Eğer yarı veya çift tempo belirgin şekilde daha güçlüyse değiştir
+        # OCTAVE_ENERGY_THRESHOLD eşiği: Alternatif en az bu oranda güçlü olmalı
+        best_bpm = bpm
+        best_strength = current_strength
+
+        # Yarı tempo kontrolü: Yarı tempo daha doğal hissediyorsa
+        # (özellikle hızlı parçalarda çift vuruş algılanması sorunu)
+        if half_strength > current_strength * self.OCTAVE_ENERGY_THRESHOLD:
+            # Ek kontrol: Yarı tempo 60-120 aralığında mı? (yaygın tempo aralığı)
+            if 60 <= half_bpm <= 140:
+                best_bpm = half_bpm
+                best_strength = half_strength
+
+        # Çift tempo kontrolü: Çift tempo daha güçlüyse
+        # (özellikle yavaş parçalarda yarı vuruş algılanması sorunu)
+        if double_strength > best_strength * self.OCTAVE_ENERGY_THRESHOLD:
+            # Ek kontrol: Mevcut tempo çok düşükse (70 BPM altı) çift tempoyu tercih et
+            if bpm < 70 and double_bpm <= 180:
+                best_bpm = double_bpm
+
+        return round(best_bpm, 1)
     
     def _calculate_ensemble_confidence(
-        self, 
-        estimates: list[tuple[str, float, float, float]], 
+        self,
+        estimates: list[tuple[str, float, float, float]],
         final_bpm: float
     ) -> float:
-        """Yöntem uyumuna göre güvenilirliği hesapla."""
+        """
+        Geliştirilmiş güvenilirlik hesaplaması.
+
+        Faktörler:
+        1. Yöntemler arası uyum (%5 tolerans)
+        2. DeepRhythm katılımı ve uyumu
+        3. Sinyal kalitesi (onset envelope tutarlılığı)
+        4. Uyuşan yöntem sayısı (konsensüs gücü)
+        """
         if not estimates:
             return 0.5
-        
+
         # Kaç yöntemin uyuştuğunu say (%5 dahilinde)
         agreements = 0
         total_weight = 0
-        
+        agreeing_methods = 0
+
         for method, norm_bpm, weight, _ in estimates:
             total_weight += weight
             if abs(norm_bpm - final_bpm) / final_bpm < 0.05:
                 agreements += weight
-        
+                agreeing_methods += 1
+
         # Uyumdan temel güvenilirlik
         agreement_score = agreements / total_weight if total_weight > 0 else 0.5
-        
+
+        # Konsensüs bonusu: 3+ yöntem uyuşuyorsa güveni artır
+        consensus_bonus = 0.0
+        if agreeing_methods >= 3:
+            consensus_bonus = 0.08
+        elif agreeing_methods >= 2:
+            consensus_bonus = 0.04
+
         # DeepRhythm uyuyorsa artır
         has_deeprhythm = any(m[0] == 'deeprhythm' for m in estimates)
         deeprhythm_agrees = any(
             m[0] == 'deeprhythm' and abs(m[1] - final_bpm) / final_bpm < 0.03
             for m in estimates
         )
-        
+
         if deeprhythm_agrees:
-            confidence = min(0.98, agreement_score * 1.15)
+            confidence = min(0.98, agreement_score * 1.15 + consensus_bonus)
         elif has_deeprhythm:
-            confidence = min(0.90, agreement_score * 1.05)
+            confidence = min(0.90, agreement_score * 1.05 + consensus_bonus)
         else:
-            confidence = min(0.85, agreement_score)
-        
+            confidence = min(0.85, agreement_score + consensus_bonus)
+
+        # Sinyal kalitesi cezası: Düşük kaliteli sinyallerde güveni düşür
+        if self._cached_onset_env is not None and self._cached_sr is not None:
+            # Onset envelope boşsa veya çok düzse güveni düşür
+            onset_env = self._cached_onset_env
+            if len(onset_env) > 0:
+                # Çok düz bir onset envelope kötü bir işaret
+                cv = np.std(onset_env) / (np.mean(onset_env) + 1e-10)  # Varyasyon katsayısı
+                if cv < 0.3:  # Çok düşük varyasyon = belirsiz ritim
+                    confidence *= 0.85
+
         return round(max(0.3, confidence), 2)
     
     def _generate_candidates(
